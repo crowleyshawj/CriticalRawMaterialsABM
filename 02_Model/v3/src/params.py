@@ -19,6 +19,7 @@ class RefiningRoute:
 
 @dataclass(frozen=True)
 class Scenario:
+    steps_per_year: int = 1                # 1 = annual (default), 2 = half-yearly, 4 = quarterly, 12 = monthly, 52 = weekly
     mine_markup_fraction: float = 0.0
     refinery_required_markup_fraction: float = 0.0
     refined_price_per_t: float = 25_000.0  # refiners' maximum: caps the price

@@ -35,7 +35,7 @@ class Manufacturer:
 
     def process(self, requested_t_input):
         """Process up to the requested input. Returns tonnes of product."""
-        limit = float("inf") if self.capacity is None else self.capacity / self.efficiency_rate
+        limit = float("inf") if self.capacity is None else self.capacity * self.model.step_years / self.efficiency_rate
         processed = min(requested_t_input, self.held_input_t, limit)
         if processed <= 0:
             return 0.0

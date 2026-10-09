@@ -103,6 +103,6 @@ def to_model_demand(
         final_product_t *= manufacturing_efficiency
 
     return {
-        int(year - start_year): float(quantity)
+        int(year): float(quantity)
         for year, quantity in zip(years, final_product_t)
     }

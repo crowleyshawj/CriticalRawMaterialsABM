@@ -35,9 +35,9 @@ class Refinery:
 
     @property
     def available_output_t(self):
-        """Output possible this period, limited by capacity and reagents."""
+        """Output possible this step, limited by capacity and reagents."""
         reagents = self.stocks[("processing_inputs", "refining_reagents")]["other_material"]
-        capacity = float("inf") if self.capacity is None else self.capacity
+        capacity = float("inf") if self.capacity is None else self.capacity * self.model.step_years
         return min(capacity, reagents / REAGENT_PER_T_OUTPUT)
 
     def refine(self, input_form, route, quantity_t=None):

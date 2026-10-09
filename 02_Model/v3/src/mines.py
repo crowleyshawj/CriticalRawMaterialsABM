@@ -99,20 +99,20 @@ class Mine:
 
     @property
     def max_product_t(self):
-        """Product the mine could make this period at full capacity."""
+        """Product the mine could make this step at full capacity."""
         if self.status != "operation":
             return 0.0
-        return min(self.capacity, self.reserves) * self.product_yield
+        return min(self.capacity * self.model.step_years, self.reserves) * self.product_yield
 
     def full_unit_cost(self, payback_years):
         """Operating cost plus capex recovered over a fixed payback period, per tonne of product."""
         return self.unit_cost + self.capex / (payback_years * self.capacity * self.product_yield)
 
-    def commit(self, year):
-        """Start building: the mine opens once its lead time has passed."""
+    def commit(self, time):
+        """Start building at 'time' (years): the mine opens once its lead time has passed."""
         self.status = "construction"
-        self.committed_year = year
-        self.opening_year = year + self.lead_time_years
+        self.committed_year = time
+        self.opening_year = time + self.lead_time_years
 
     def produce(self, ordered_t):
         """Make enough product to fill an order, using held stock first."""
@@ -123,7 +123,7 @@ class Mine:
         """Extract raw material and concentrate it to the target grade. Returns tonnes extracted."""
         if self.status != "operation":
             return 0.0
-        extracted = min(requested_t_material, self.capacity, self.reserves)
+        extracted = min(requested_t_material, self.capacity * self.model.step_years, self.reserves)
         if extracted <= 0:
             return 0.0
 

@@ -34,12 +34,13 @@ class FirmAgent:
         """Return (input needed for this period's output, extra input to buy)."""
         target = max(0.0, final_demand_t - manufacturer.finished_t)
         if manufacturer.capacity is not None:
-            target = min(target, manufacturer.capacity)
+            target = min(target, manufacturer.capacity * manufacturer.model.step_years)
         required_input = target / manufacturer.efficiency_rate
         return required_input, max(0.0, required_input - manufacturer.held_input_t)
 
-    def plan_investment(self, refined_price, scenario, year):
+    def plan_investment(self, refined_price, scenario, time):
         """Commit pipeline projects whose mine-gate price covers full cost plus a hurdle, each with a set chance per year."""
+        chance = 1.0 - (1.0 - scenario.commitment_probability) ** (1/scenario.steps_per_year)
         committed = []
         for mine in self.mines():
             if mine.status != "pre-construction":
@@ -49,7 +50,7 @@ class FirmAgent:
             output_per_t_product = mine.target_output_grade * route.lithium_recovery_fraction * units.LCE_PER_LI
             mine_gate_price = output_per_t_product * (refined_price - route.processing_cost_per_t_output)
             economic = mine_gate_price >= mine.full_unit_cost(scenario.capex_payback_years) * (1.0 + scenario.investment_hurdle)
-            if economic and draw < scenario.commitment_probability:
-                mine.commit(year)
+            if economic and draw < chance:
+                mine.commit(time)
                 committed.append(mine.asset_id)
         return committed

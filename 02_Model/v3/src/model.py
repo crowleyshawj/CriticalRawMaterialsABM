@@ -9,7 +9,8 @@ from .params import BASE_YEAR, Scenario
 
 class Model:
     """
-    Runs the supply chain one year per period. Stocks carry over between periods.
+    Runs the supply chain one step at a time; the step length is defined by Scenario.steps_per_year (one year by default).
+    Capacities and demand are annual rates, scaled to the step. Stocks carry over between steps.
 
     ASSUMPTIONS:
         - production is instantaneous within a period
@@ -26,11 +27,18 @@ class Model:
         self.refinery = refinery
         self.manufacturer = manufacturer
         self.end_use = end_use
-        self.demand = demand or {}  # {period: final-product demand} - exogenous, from IAM
+        self.demand = demand or {}  # {calendar year: annual final-product demand} - exogenous, from IAM
         self.firms = firms
         self.scenario = scenario or Scenario()
+        
         self.start_year = start_year
-        self.period = 0
+        self.steps_per_year = self.scenario.steps_per_year
+        
+        if not isinstance(self.steps_per_year, int) or self.steps_per_year < 1:
+            raise ValueError(f"steps_per_year must be a positive whole number, e.g. 1, 2, 4, 12, or 52. Instead received: {self.steps_per_year}.")
+        
+        self.step_years = 1 / self.steps_per_year
+        self.period = 0 # index of the current step
         self.period_rows = []
         self.price = None  # last realised price, USD per t refined output (LCE)
         self.transactions = []
@@ -46,28 +54,43 @@ class Model:
         self.mine_order = {mine.asset_id: i for i, mine in enumerate(mines)}
         self.ledger = MaterialLedger(assets)
 
+    @property
+    def time(self):
+        """Start of the current step, in years (2024.25 is the start of the second quarter of 2024.)"""
+        return self.start_year + self.period / self.steps_per_year
+    
+    @property
+    def year(self):
+        """Calendar year of the current step."""
+        return self.start_year + self.period // self.steps_per_year
+
+    @property
+    def step_in_year(self):
+        """Position of the current step within its year, from 1 to steps_per_year."""
+        return self.period % self.steps_per_year + 1
+
     def run(self, periods=None):
-        """Run to the end of the demand horizon, or for a given number of periods."""
+        """Run to the end of the demand horizon, or for a given number of steps."""
         if periods is None:
-            periods = max(self.demand) + 1 - self.period
+            periods = (max(self.demand) + 1 - self.start_year) * self.steps_per_year - self.period
         for _ in range(periods):
             self.step()
         return pd.DataFrame(self.period_rows)
 
     def step(self):
-        """Run one period from mining through final delivery."""
+        """Run one step from mining through final delivery."""
         refinery, manufacturer, end_use = self.refinery, self.manufacturer, self.end_use
         assert refinery and manufacturer and end_use, "step() needs a refinery, a manufacturer and an end use."
-        year = self.start_year + self.period
+        time = self.time
         scenario = self.scenario
 
         opened = [mine.asset_id for mine in self.mines
-                  if mine.status == "construction" and mine.opening_year is not None and mine.opening_year <= year]
+                  if mine.status == "construction" and mine.opening_year is not None and mine.opening_year <= time]
         for mine_id in opened:
             self.assets_by_id[mine_id].status = "operation"
 
         # 1. Work backwards from final demand to the inputs each stage must buy.
-        demand = self.demand.get(self.period, 0.0)
+        demand = demand_in_step(self.demand, self.year, self.step_in_year, self.steps_per_year)
         required_input, input_to_buy = self.owner[manufacturer.asset_id].plan_manufacturing(manufacturer, demand)
         request = self.owner[refinery.asset_id].plan_refinery_purchases(refinery, input_to_buy, scenario)
 
@@ -96,12 +119,12 @@ class Model:
         manufactured_t = manufacturer.process(required_input)
         delivered_t = end_use.delivery(manufacturer, demand)
 
-        # 6. Firms decide whether to start building pipeline projects at this year's price.
+        # 6. Firms decide whether to start building pipeline projects at this step's price.
         committed = [] if self.price is None else [
-            mine_id for firm in self.firms for mine_id in firm.plan_investment(self.price, scenario, year)]
+            mine_id for firm in self.firms for mine_id in firm.plan_investment(self.price, scenario, time)]
 
         self.ledger.check_conservation()
-        row = {"period": self.period, "year": year, "opened_mine_ids": opened, "demand_t": demand,
+        row = {"period": self.period, "time": time, "year" : self.year, "step_in_year": self.step_in_year, "opened_mine_ids": opened, "demand_t": demand,
                "refined_output_t": refined_t, "manufacturing_input_purchased_t": sold_t,
                "cathode_output_t": manufactured_t, "delivered_t": delivered_t,
                "unmet_demand_t": max(0.0, demand - delivered_t), "in_use_t": end_use.in_use_t,
@@ -116,5 +139,27 @@ def mine_sales_by_country(model):
     """Refined output equivalent tonnes and revenue sold by mines, per year and agent country."""
     trades = pd.DataFrame([t for t in model.transactions if t["event_id"].startswith("refinery_purchases:")])
     trades["country"] = trades["source_asset_id"].map(lambda asset_id: model.owner[asset_id].home_region)
-    trades["year"] = model.start_year + trades["period"]
+    trades["year"] = model.start_year + trades["period"] // model.steps_per_year
     return trades.pivot_table(index="year", columns="country", values=["output_t", "transaction_value"], aggfunc="sum", fill_value=0.0)
+
+def demand_in_step(annual_demand, year, step_in_year, steps_per_year):
+    """Demand in one step from annual quantities keyed by the calendar year.
+    Witihin each year demand rises a long a straight line centred on that year's quantity, with the slope taken from the
+    neighbouring years, so the steps of a year add up exactly to its annual quantity. With one-year steps this is the annual quantity itself."""
+
+    value = annual_demand.get(year, 0.0)
+    previous = annual_demand.get(year - 1)
+    following = annual_demand.get(year + 1)
+    
+    if previous is None and following is None:
+        slope = 0.0
+    elif previous is None:
+        slope = following - value
+    elif following is None:
+        slope = value - previous
+    else:
+        slope = (following - previous) / 2
+
+    slope = max(-2 * value, min(2*value, slope)) # keeps the rate non-negative within the year
+    middle_of_step = (step_in_year - 0.5) / steps_per_year
+    return (value + slope * (middle_of_step - 0.5)) / steps_per_year
