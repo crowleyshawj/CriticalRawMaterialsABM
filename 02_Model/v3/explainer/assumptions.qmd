@@ -1,0 +1,47 @@
+# Assumptions for the model.
+
+Capital costs: capital costs are spread evenly over the development / construction period. Therefore $CC_{tf} = \frac{b_{CC}}{t_D} $ during development and 0 otherwise. 
+
+Operating costs: In GCMat, operating costs are constant for every year operating, and 0 otherwise. Production costs unclear. In my model operating costs proportional to production level currently - later want a constant and a variable component.
+
+Development time: In GCMat it is the same for all deposits. In mine, I introduce some variability.
+
+Markets: firms offer homogenous spodumene concentrate or concentrated brine at their assets' unit operating costs, initially without markup. A representative refinery can use either input through its corresponding processing route. Upstream offers are compared by their total cost per tonne of recoverable lithium-carbonate output. One joint clearing calculation selects supplies and establishes a common output-equivalent value, from which a uniform transaction price is calculated for each input material.
+
+**How the mechanisms works**
+
+For route *r* define:
+
+- $g_r$: elemental lithium mass fraction of its input.
+- $R_r$: refinery lithium recovery.
+- $y_r = g_r R_r \times LCE_PER_LI $: tonnes of carbonate output per tonne of input.
+- $c_r$: processing cost per tonne of carbonate output
+- $a_i$: mine i's asking price per tonne of input
+
+Each offer is compared using:
+
+$$ k_i = \frac {a_i}{y_r} + c_r $$
+
+The refinery's firm submits one output requirement, adjusted for inventory, capacity and reagents. It also supplies an affordability ceiling:
+
+$ V_{max} = \frac {\text{expected refined selling price}}{1 + \text{ required refinery markup}} $
+
+The clearing function accepts the cheapest offers with $k_i \leq V_{max}$ until the requirement is met or affordable supply runs out. When demand is met, the highest accepted $k_i$ sets the clearing value $V$. Every accepted seller in route $r$ receives:
+
+$ p_r = y_r(V-c_r)$
+
+Consequently:
+
+$\frac {p_r}{y_r} + c_r = V $
+
+Both routes therefore have the same settled input-plus-processing cost per tonne of refined output, while mines retain different operating margins. 
+
+This gives us the following boundary rules:
+
+1. **Affordable supply meets demand:** $V$ is the higher accepted equivalent cost.
+2. **Affordable supply is insufficient:** $V = V_{max}$; allocate available supply and record shortfall. This is the scarcity-pricing assumption.
+3. **Equal-cost offers at the acceptance boundary:** allocate proportionally to their available output-equivalent quantities.
+4. **No transactions:** transaction price is None.
+5. **A material has no transactions:** Its realised market is None; any implied valuation must be labelled separately.
+
+The refinery's selling price remains prescribed initially. 
